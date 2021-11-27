@@ -1,0 +1,118 @@
+use std::str::FromStr;
+use lalrpop_util::ErrorRecovery;
+use expr::*;
+use stmt::*;
+
+//grammar;
+grammar<'err>(errors: &'err mut Vec<ErrorRecovery<usize, Token<'input>, &'static str>>);
+
+// Todo(matt): rename Call to be more inline with what it really is Expr
+Statement: Stmt = {
+    // declare variables
+    "var" <name:Ident> ":" <var_type:TypeDef> "=" <expr:Call> => Stmt::DecVar(name, Some(var_type), Some(expr)),
+    "var" <name:Ident> "=" <expr:Call> => Stmt::DecVar(name, None, Some(expr)),
+    "var" <name:Ident> ":" <var_type:TypeDef> => Stmt::DecVar(name, Some(var_type), None),
+    // function calls
+    <name:Ident> "(" <params:Comma<Call>> ")" => Stmt::Call(name, params),
+    // assignments
+    <name:Ident> "=" <action:Call> => Stmt::Assign(name, action),
+    ! => { errors.push(<>); Stmt::Error },
+};
+
+pub FuncDef: FuncDef = {
+    "fn" <name: Ident> "(" <params:Comma<ParamDef>> ")" <return_type:ReturnType> <stmts:Block> => FuncDef{name, params, return_type, stmts},
+};
+
+Block: Vec<Stmt> = {
+    "{" <stmts:Semi<Statement>> "}" => stmts,
+};
+
+ReturnType: Option<TypeDef> = {
+    "->"? <return_type: TypeDef?> => <>,
+};
+
+ParamDef: ParamDef = {
+    <name:Ident> ":" <type_name:TypeDef> => ParamDef{name, type_name},
+};
+
+TypeDef: TypeDef = {
+    <name:Ident> => TypeDef{name},
+}
+
+pub Call: Expr = {
+    <n:Ident> "(" <p:Comma<Call>> ")" => Expr::Call(n, p),
+    Expr,
+};
+
+pub Expr: Expr = {
+    <l:Expr> <op:AddOp> <r:UnaryExpr> => Expr::BinOp(Box::new(l), op, Box::new(r)),
+    UnaryExpr,
+};
+
+UnaryExpr: Expr = {
+    <op:UnaryOp> <r:Factor> => Expr::UnaryOp(op, Box::new(r)),
+    Factor,
+};
+
+Factor: Expr = {
+    <l:Factor> <op:FactorOp> <r:Term> => Expr::BinOp(Box::new(l), op, Box::new(r)),
+    Term,
+};
+
+UnaryOp: Op = {
+    "+" => Op::Add,
+    "-" => Op::Sub,
+};
+
+AddOp: Op = {
+    "+" => Op::Add,
+    "-" => Op::Sub,
+};
+
+FactorOp: Op = {
+    "*" => Op::Mul,
+    "/" => Op::Div,
+};
+
+pub Term: Expr = {
+    <n:Num> => Expr::I64Lit(n),
+    <n:Ident> => Expr::Ident(n),
+    "(" <t:Expr> ")" => t,
+    ! => { errors.push(<>); Expr::Error },
+};
+
+pub Ident: String = <s:r"[_a-zA-Z][_a-zA-Z0-9]*"> => String::from_str(s).unwrap();
+
+//Float: f64 = <s:r"[-+]?([0-9]*[.])?[0-9]+([eE][-+]?\d+)?"> => f64::from_str(s).unwrap();
+pub Num: i64 = <s:r"[0-9]+"> => i64::from_str(s).unwrap();
+
+Comma<T>: Vec<T> = { // (1)
+    <mut v:(<T> ",")*> <e:T?> => match e { // (2)
+        None => v,
+        Some(e) => {
+            v.push(e);
+            v
+        }
+    }
+};
+
+Semi<T>: Vec<T> = { // (1)
+    <mut v:(<T> ";")*> <e:T?> => match e { // (2)
+        None => v,
+        Some(e) => {
+            v.push(e);
+            v
+        }
+    }
+};
+
+// this won't work until we implement a new lexer
+Newline<T>: Vec<T> = { // (1)
+    <mut v:(<T> "\n")*> <e:T?> => match e { // (2)
+        None => v,
+        Some(e) => {
+            v.push(e);
+            v
+        }
+    }
+};
